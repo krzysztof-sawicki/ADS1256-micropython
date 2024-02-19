@@ -1,15 +1,17 @@
-#Micropthon driver for ADS1256
+#Micropython driver for ADS1256
 # reset() - Reset ADS1256
 # sync() - Synchronize the A/D conversion using SYNC pin
 # select()/deselect() - Select/deselect ADS1256
 # waitDRDY() - wait for DRDY to go low
 # read_reg(reg_addr) - Read register with reg_addr address, return register value
 # write_reg(reg_addr, data) - Write data to register reg_addr
+# set_pga(PGA) - sets programmable gain amplifier
 # select_channel(CH) - Select channel CH
 # read_single() - Convert and read 1 shot, return converted value
 # read_continuous() - Convert continuously one channel, return first converted value
 # read_conversion() - Read last conversion, return conversion
 # cycle_channel(CH) - Cycle to channel CH and returns value of previous channel conversion
+# select_differential_channel(PCH, NCH) - Selects differential channel (+PCH-NCH)
 # self_cal() - Performs self offset and gain calibration
 # self_ocal() - Performs self offset calibration
 # self_gcal() - Performs self gain calibration
@@ -65,16 +67,31 @@ class ADS1256:
     DR30K=const(0xD0)
     
     
-    def __init__(self, spi, cs,DRDY,SYNC= None,ref_voltage=2.5):
+    PGAMASK  = const(0x07)
+    PGANMASK = const(0xF8)
+    """Programmable Gain Amplifier"""
+    PGA1     = const(0x00)  # x1
+    PGA2     = const(0x01)  # x2
+    PGA4     = const(0x02)  # x4
+    PGA8     = const(0x03)  # x8
+    PGA16    = const(0x04)  # x16
+    PGA32    = const(0x05)  # x32
+    PGA64    = const(0x06)  # x64
+    
+    
+    def __init__(self, spi, cs, DRDY, SYNC=None, ref_voltage=5.0, pga = PGA1):
         #Define module pins and SPI interface
         self.cs=cs
         self.spi=spi
         self.ref_voltage=ref_voltage
         self.drdy=DRDY
         self.sync=SYNC
+        self.pga = pga
         #Define data buffers
         self.outbuff=bytearray(1)
         self.conversion=bytearray(3)
+        
+        self.set_pga(pga)
         
     def select(self):
         #Select ADS slave
@@ -121,7 +138,7 @@ class ADS1256:
         self.spi.readinto(self.outbuff,0xFF)
         self.cs.value(1)
         return self.outbuff
-        
+    
     def write_reg(self,reg_addr,data):
         #Write single register, address and data must be 1 byte values
         while self.drdy.value():
@@ -131,9 +148,27 @@ class ADS1256:
         self.spi.write(bytearray([data]))
         self.cs.value(1)
         
+    def read_pga(self):
+        return self.read_reg(self.ADCON)[0] & self.PGAMASK
+
+    def set_pga(self, pga):
+        oldpga = self.read_reg(self.ADCON)[0]
+        npga = (oldpga & self.PGANMASK) | (pga & self.PGAMASK)
+        self.write_reg(self.ADCON, npga)
+        
     def select_channel(self, CH):
         #Select a specific single-ended channel
         self.write_reg(MUX, CH)
+        
+    def select_differential_channel(self, PCH, NCH):
+        """
+        Select a differential input (PCH - NCH)
+        PCH - Positive channel
+        NCH - Negative channel
+        """
+        ch = (PCH & 0xF0) | (NCH >> 4)
+        print("Kanał: {:02x}".format(ch))
+        self.select_channel(ch)
         
     def read_single(self):
         #Perform one-shot conversion and returns conversion value
@@ -251,4 +286,5 @@ class ADS1256:
         self.spi.write(bytearray([0xFF])) #Wakeup command
         self.deselect()
         
+
 
